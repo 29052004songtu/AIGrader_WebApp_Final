@@ -28,7 +28,8 @@ python -m venv .venv
 
 ### Bước 2: Thiết lập tài khoản Đám mây Modal
 Hệ thống AI nặng hàng chục GB không thể chạy trên máy cá nhân. Bạn cần có tài khoản tại Modal.com. Sau khi đăng ký, hãy xác thực Terminal của bạn với Modal bằng lệnh:
-modal token new
+    
+    modal token new
 
 
 ### Bước 3: Triển khai (Deploy) 2 Microservices Backend
