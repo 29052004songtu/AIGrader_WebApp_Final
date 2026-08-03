@@ -30,27 +30,43 @@ if uploaded_file is not None and not st.session_state.is_extracted:
         if not OCR_API_URL:
             st.error("Chưa cấu hình OCR_API_URL trong file .env")
         else:
-            with st.spinner("🤖 Đang chạy Qwen2.5-VL bóc tách PDF (Có thể mất 30s - 1 phút)..."):
-                try:
-                    # Gọi API Modal Qwen2.5-VL
-                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-                    response = requests.post(OCR_API_URL, files=files, timeout=600)
+            # Tạo một vùng trống để hiển thị chữ chạy real-time
+            status_text = st.info("🤖 Đang kết nối với Qwen2.5-VL trên đám mây...")
+            stream_placeholder = st.empty()
 
-                    if response.status_code == 200:
-                        data = response.json()
-                        st.session_state.extracted_text = data.get("extracted_text", "")
-                        st.session_state.is_extracted = True
-                        st.rerun()
-                    else:
-                        st.error(f"Lỗi API: {response.status_code} - {response.text}")
-                except Exception as e:
-                    st.error(f"Lỗi kết nối: {str(e)}")
+            try:
+                # Gọi API Modal Qwen2.5-VL với chế độ stream=True
+                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
+                response = requests.post(OCR_API_URL, files=files, stream=True, timeout=600)
+
+                if response.status_code == 200:
+                    status_text.success("✅ Kết nối thành công! Đang tiến hành đọc dữ liệu luồng...")
+                    full_text = ""
+
+                    # Vòng lặp hứng dữ liệu liên tục từ API trả về
+                    for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                        if chunk:
+                            full_text += chunk
+                            # Hiển thị chữ chạy real-time với con trỏ nhấp nháy
+                            stream_placeholder.markdown(full_text + " ▌")
+
+                    # Lưu kết quả cuối cùng vào Session State và reset UI
+                    st.session_state.extracted_text = full_text
+                    st.session_state.is_extracted = True
+                    st.rerun()
+                else:
+                    status_text.error(f"Lỗi API: {response.status_code} - {response.text}")
+            except requests.exceptions.ReadTimeout:
+                st.error("Lỗi Timeout: Dữ liệu quá lớn, hệ thống mạng đã ngắt kết nối giữa chừng.")
+            except Exception as e:
+                st.error(f"Lỗi kết nối: {str(e)}")
 
 # BƯỚC 2: KIỂM DUYỆT & CHỈNH SỬA
 if st.session_state.is_extracted:
     st.header("2. Trình Soạn Thảo Kiểm Duyệt (Human-in-the-loop)")
     st.info(
-        "💡 Vui lòng rà soát và chỉnh sửa các lỗi chính tả (nếu có) do AI bóc tách từ chữ viết tay trước khi đưa vào chấm điểm.")
+        "💡 Vui lòng rà soát và chỉnh sửa các lỗi chính tả (nếu có) do AI bóc tách từ chữ viết tay trước khi đưa vào chấm điểm."
+    )
 
     # Giao diện Text Area rộng rãi để chỉnh sửa
     edited_text = st.text_area(
@@ -76,7 +92,7 @@ if st.session_state.is_extracted:
                     try:
                         # Gọi API Chấm điểm (DeepSeek V2.0)
                         payload = {"report_text": edited_text}
-                        grade_response = requests.post(GRADING_API_URL, json=payload)
+                        grade_response = requests.post(GRADING_API_URL, json=payload, timeout=600)
 
                         if grade_response.status_code == 200:
                             st.session_state.grading_result = grade_response.json()
@@ -113,7 +129,8 @@ if st.session_state.grading_result:
         if errors:
             for err in errors:
                 st.error(
-                    f"**Lỗi:** {err.get('error_name')}  \n**Giải thích:** {err.get('reason')}  \n**Phạt:** -{err.get('penalty_score')} điểm")
+                    f"**Lỗi:** {err.get('error_name')}  \n**Giải thích:** {err.get('reason')}  \n**Phạt:** -{err.get('penalty_score')} điểm"
+                )
         else:
             st.success("🎉 Bài làm hoàn hảo, không phát hiện lỗi khoa học hay vi phạm HACCP!")
 
