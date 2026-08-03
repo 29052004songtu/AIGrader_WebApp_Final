@@ -34,7 +34,7 @@ if uploaded_file is not None and not st.session_state.is_extracted:
                 try:
                     # Gọi API Modal Qwen2.5-VL
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-                    response = requests.post(OCR_API_URL, files=files)
+                    response = requests.post(OCR_API_URL, files=files, timeout=600)
 
                     if response.status_code == 200:
                         data = response.json()
