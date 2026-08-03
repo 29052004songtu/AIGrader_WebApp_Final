@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import re
 import os
 from dotenv import load_dotenv
 
@@ -47,11 +48,20 @@ if uploaded_file is not None and not st.session_state.is_extracted:
                     for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
                         if chunk:
                             full_text += chunk
-                            # Hiển thị chữ chạy real-time với con trỏ nhấp nháy
-                            stream_placeholder.markdown(full_text + " ▌")
+                            # 🚀 CẬP NHẬT 1: Ẩn dòng chữ Ping đi để giao diện trông chuyên nghiệp
+                            display_text = full_text.replace(
+                                "Khởi động AI thành công! Đang tiến hành đọc luồng dữ liệu...\n\n", "")
+                            stream_placeholder.markdown(display_text + " ▌")
 
-                    # Lưu kết quả cuối cùng vào Session State và reset UI
-                    st.session_state.extracted_text = full_text
+                    # 🚀 CẬP NHẬT 2: KÍCH HOẠT BỘ LỌC RÁC STUDOCU TRƯỚC KHI LƯU
+                    final_text = full_text.replace("Khởi động AI thành công! Đang tiến hành đọc luồng dữ liệu...\n\n",
+                                                   "")
+                    final_text = re.sub(r'Downloaded by .*?\n', '', final_text)  # Xóa tên người tải
+                    final_text = re.sub(r'lOMoARcPSD\|.*?\n', '', final_text)  # Xóa mã tài liệu chìm
+                    final_text = final_text.strip()
+
+                    # Lưu kết quả cuối cùng đã được làm sạch
+                    st.session_state.extracted_text = final_text
                     st.session_state.is_extracted = True
                     st.rerun()
                 else:
@@ -90,9 +100,24 @@ if st.session_state.is_extracted:
             else:
                 with st.spinner("⚖️ Tổ Công Tố và Luật Sư đang kiểm toán dữ liệu (Vui lòng đợi 1 - 2 phút)..."):
                     try:
-                        # Gọi API Chấm điểm (DeepSeek V2.0)
-                        payload = {"report_text": edited_text}
-                        grade_response = requests.post(GRADING_API_URL, json=payload, timeout=600)
+                        # 1. LẤY CHÌA KHÓA TỪ FILE .ENV
+                        api_key = os.getenv("GRADING_API_KEY", "")
+
+                        # 2. ĐÓNG GÓI CHÌA KHÓA VÀO HEADERS THEO CHUẨN BEARER TOKEN
+                        headers = {
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {api_key}"
+                        }
+
+                        payload = {"document_text": edited_text}
+
+                        # 3. GỬI KÈM HEADERS VÀO REQUEST
+                        grade_response = requests.post(
+                            GRADING_API_URL,
+                            json=payload,
+                            headers=headers,  # Nâng cấp mấu chốt nằm ở đây
+                            timeout=600
+                        )
 
                         if grade_response.status_code == 200:
                             st.session_state.grading_result = grade_response.json()
@@ -108,15 +133,24 @@ if st.session_state.grading_result:
 
     res = st.session_state.grading_result
 
+    # 🚀 CẬP NHẬT: Đồng bộ Key tiếng Việt từ API trả về
+    diem_noi_dung = res.get('diem_noi_dung', 0)
+    diem_tong_ket = res.get('diem_tong_ket', 0)
+    tong_diem_phat = round(diem_noi_dung - diem_tong_ket, 1)
+
     # Hiển thị KPI bằng Metrics của Streamlit
     m1, m2, m3 = st.columns(3)
-    m1.metric(label="📌 Điểm Nội Dung (Base Score)", value=f"{res.get('base_score', 0)} / 10")
-    m2.metric(label="⚠️ Tổng Điểm Phạt", value=f"- {res.get('total_penalty', 0)}")
-    m3.metric(label="🏆 ĐIỂM TỔNG KẾT", value=f"{res.get('final_score', 0)} / 10")
+    m1.metric(label="📌 Điểm Nội Dung (Base Score)", value=f"{diem_noi_dung} / 10")
+    m2.metric(label="⚠️ Tổng Điểm Phạt", value=f"- {tong_diem_phat}")
+    m3.metric(label="🏆 ĐIỂM TỔNG KẾT", value=f"{diem_tong_ket} / 10")
 
-    # Hiển thị Điểm sáng
+    # Hiển thị Điểm sáng & Đánh giá chiều sâu
     with st.expander("✨ Điểm Sáng & Ưu Điểm Bài Làm", expanded=True):
-        highlights = res.get("highlights", [])
+        danh_gia = res.get("danh_gia_chieu_sau", "")
+        if danh_gia:
+            st.markdown(f"**Đánh giá tổng quan:** {danh_gia}")
+
+        highlights = res.get("diem_sang", [])
         if highlights:
             for hl in highlights:
                 st.markdown(f"- {hl}")
@@ -125,15 +159,22 @@ if st.session_state.grading_result:
 
     # Hiển thị Lỗi sai
     with st.expander("⚖️ Danh Sách Lỗi Phạm Quy & Án Phạt (Đã gộp & bảo vệ)", expanded=True):
-        errors = res.get("errors", [])
+        errors = res.get("cac_loi_sai", [])
         if errors:
             for err in errors:
                 st.error(
-                    f"**Lỗi:** {err.get('error_name')}  \n**Giải thích:** {err.get('reason')}  \n**Phạt:** -{err.get('penalty_score')} điểm"
+                    f"**Lỗi:** {err.get('loi_sai')}  \n**Giải thích:** {err.get('giai_thich_ngan_gon')}  \n**Phạt:** -{err.get('diem_tru')} điểm"
                 )
         else:
             st.success("🎉 Bài làm hoàn hảo, không phát hiện lỗi khoa học hay vi phạm HACCP!")
 
-    # Hiển thị Log không gian suy luận (Dành cho Giảng viên kiểm chứng)
-    with st.expander("🧠 Xem Log Không Gian Suy Luận (Dành cho Giảng Viên)"):
-        st.code(res.get("think_log", "Không có log suy luận."), language="markdown")
+    # Hiển thị Log không gian suy luận & Biên bản
+    with st.expander("🧠 Xem Log Không Gian Suy Luận & Biên Bản (Dành cho Giảng Viên)"):
+        bien_ban = res.get("bien_ban_hoi_dong", "")
+        if bien_ban:
+            st.markdown("**Biên bản đối kháng:**")
+            st.code(bien_ban, language="markdown")
+
+        think_log = res.get("lich_su_think", "Không có log suy luận.")
+        st.markdown("**Suy luận của AI (Think Log):**")
+        st.code(think_log, language="markdown")
